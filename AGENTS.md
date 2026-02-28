@@ -96,6 +96,55 @@ nix run .#helmupdater -- init "oci://ghcr.io/myorg/charts" myorg/nginx --commit
 
 All commands are invoked as `nix run .#helmupdater -- <command> [args]`.
 
+## Manually Updating a Chart to a Specific Version
+
+The `helmupdater` CLI only selects the latest stable version and skips pre-release versions. When a specific version is needed (e.g. an alpha, beta, or RC), the update must be done manually.
+
+### Step-by-step process
+
+1. **Find the chart's `default.nix`** in `charts/<repo_name>/<chart_name>/default.nix`.
+
+2. **Look up available versions** from the upstream Helm repository:
+   - For HTTP repos: fetch the repo's `index.yaml` (e.g. `https://helm.camunda.io/index.yaml`) and search for the desired version.
+   - For OCI repos: list tags from the OCI registry.
+
+3. **Edit `default.nix`**: update the `version` field to the desired version and set `chartHash` to a dummy placeholder value:
+   ```nix
+   chartHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+   ```
+
+4. **Run `nix build`** to trigger a hash mismatch error that reveals the correct hash:
+   ```sh
+   nix build .#chartsDerivations.x86_64-linux.<repo_name>.<chart_name> 2>&1
+   ```
+   The error output will contain a line like:
+   ```
+   got:    sha256-<correct hash>
+   ```
+
+5. **Update `chartHash`** in `default.nix` with the correct hash from the error output.
+
+6. **Verify the build succeeds** by running the same `nix build` command again. It should complete with no errors.
+
+### Example: updating camunda-platform to a pre-release version
+
+```sh
+# 1. Look up available versions
+# Fetch https://helm.camunda.io/index.yaml and find the desired version (e.g. 14.0.0-alpha4)
+
+# 2. Edit charts/camunda/camunda-platform/default.nix:
+#    version = "14.0.0-alpha4";
+#    chartHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+# 3. Build to get the real hash
+nix build .#chartsDerivations.x86_64-linux.camunda.camunda-platform 2>&1
+# error: hash mismatch ...
+#    got:    sha256-6ZmEXCBdIqyouWw9/6qjbl9lnUZzj6SrOsTE/JErBhY=
+
+# 4. Update chartHash with the correct value and rebuild to verify
+nix build .#chartsDerivations.x86_64-linux.camunda.camunda-platform
+```
+
 ## Important Notes
 
 - Files must be git-tracked for Nix to see them. The `init` command handles this automatically.
